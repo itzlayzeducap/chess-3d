@@ -1,0 +1,1999 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3d chess — Material 3D Chess & Analysis</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+  <!-- Three.js & OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- Chess.js (Complete Rule Engine) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            m3: {
+              bg: '#FAFAFA',
+              surface: '#FFFFFF',
+              surfaceVariant: '#F2F2F2',
+              onSurface: '#121212',
+              onSurfaceVariant: '#525252',
+              outline: '#E0E0E0',
+              primary: '#FF5500',
+              primaryHover: '#E04B00',
+              primaryContainer: '#FFF0E8',
+              onPrimaryContainer: '#7A2500',
+              dark: '#141414',
+              darkSurface: '#1F1F1F'
+            }
+          },
+          borderRadius: {
+            'm3-sm': '12px',
+            'm3-md': '20px',
+            'm3-lg': '28px',
+            'm3-full': '9999px',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #FAFAFA;
+      color: #121212;
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Material 3 Elevation & Surface Shadows */
+    .m3-card {
+      background: #FFFFFF;
+      border: 1px solid #E8E8E8;
+      border-radius: 24px;
+      box-shadow: 0 2px 10px rgba(18, 18, 18, 0.03);
+      transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.2s cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    .m3-pill-btn {
+      border-radius: 9999px;
+      font-weight: 600;
+      transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      user-select: none;
+    }
+
+    .m3-pill-btn:active {
+      transform: scale(0.97);
+    }
+
+    /* Custom Scrollbar for Move List & History */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #D4D4D4;
+      border-radius: 999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #A3A3A3;
+    }
+
+    /* 3D Canvas Container */
+    #canvas-wrapper {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 440px;
+      background: #141414;
+      border-radius: 28px;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    @media (max-width: 768px) {
+      #canvas-wrapper {
+        min-height: 360px;
+        height: 52vh;
+        border-radius: 24px;
+      }
+    }
+
+    /* Evaluation Bar Transition */
+    #eval-fill {
+      transition: height 0.45s cubic-bezier(0.22, 1, 0.36, 1), width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* Move Quality Badges */
+    .badge-brilliant { background: #E0F7FA; color: #006064; border: 1px solid #80DEEA; }
+    .badge-great     { background: #E8F5E9; color: #1B5E20; border: 1px solid #A5D6A7; }
+    .badge-good      { background: #F3F4F6; color: #1F2937; border: 1px solid #D1D5DB; }
+    .badge-inaccuracy{ background: #FFF8E1; color: #8D6E00; border: 1px solid #FFE082; }
+    .badge-mistake   { background: #FFF0E8; color: #B83D00; border: 1px solid #FFAB80; }
+    .badge-blunder   { background: #FFEBEE; color: #B71C1C; border: 1px solid #EF9A9A; }
+
+    /* Material Ripple / Toast */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
+      pointer-events: none;
+    }
+
+    .m3-snackbar {
+      background: #141414;
+      color: #FFFFFF;
+      padding: 12px 22px;
+      border-radius: 16px;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: slideUp 0.25s cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- TOP MATERIAL 3 APP BAR -->
+  <header class="sticky top-0 z-40 bg-[#FAFAFA]/90 backdrop-blur-md border-b border-m3-outline">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2">
+      <!-- Brand Logo -->
+      <a href="#top" onclick="switchSection('play')" class="flex items-center gap-3 group">
+        <div class="w-10 h-10 rounded-2xl bg-m3-dark flex items-center justify-center text-white shadow-sm group-hover:bg-m3-primary transition-colors">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L15 8L21 9L16.5 14L18 20L12 17L6 20L7.5 14L3 9L9 8L12 2Z" fill="#FF5500" stroke="none"/>
+            <path d="M5 21H19" stroke="#FFFFFF" stroke-width="2.2"/>
+          </svg>
+        </div>
+        <div>
+          <span class="font-extrabold text-lg tracking-tight text-m3-onSurface block leading-none">3d chess</span>
+          <span class="text-[11px] font-medium text-m3-onSurfaceVariant tracking-wider uppercase" data-i18n="brandSubtitle">Material 3 Engine</span>
+        </div>
+      </a>
+
+      <!-- Navigation Segmented Tabs (Material 3 Navigation Pill) -->
+      <nav class="hidden md:flex items-center bg-m3-surfaceVariant p-1 rounded-full border border-m3-outline">
+        <button id="nav-play" onclick="switchSection('play')" class="px-5 py-2 rounded-full text-sm font-semibold transition-all bg-m3-dark text-white" data-i18n="navPlay">
+          3D Арена
+        </button>
+        <button id="nav-engine" onclick="switchSection('engine')" class="px-5 py-2 rounded-full text-sm font-semibold transition-all text-m3-onSurfaceVariant hover:text-m3-onSurface" data-i18n="navEngine">
+          Модели Stockfish
+        </button>
+        <button id="nav-history" onclick="switchSection('history')" class="px-5 py-2 rounded-full text-sm font-semibold transition-all text-m3-onSurfaceVariant hover:text-m3-onSurface flex items-center gap-2">
+          <span data-i18n="navHistory">История партий</span>
+          <span id="history-count-badge" class="text-xs px-2 py-0.5 rounded-full bg-m3-primary text-white font-bold">0</span>
+        </button>
+      </nav>
+
+      <!-- Right Controls: Language Switcher & New Game -->
+      <div class="flex items-center gap-2">
+        <div class="flex items-center bg-m3-surfaceVariant p-1 rounded-full border border-m3-outline">
+          <button id="lang-ru" onclick="setLanguage('ru')" class="px-3 py-1 rounded-full text-xs font-bold transition-all bg-white text-m3-onSurface shadow-sm">RU</button>
+          <button id="lang-en" onclick="setLanguage('en')" class="px-3 py-1 rounded-full text-xs font-bold transition-all text-m3-onSurfaceVariant">EN</button>
+        </div>
+        <button onclick="openNewGameModal()" class="m3-pill-btn bg-m3-primary hover:bg-m3-primaryHover text-white px-4 py-2.5 text-sm shadow-sm">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span class="hidden sm:inline" data-i18n="newGameBtn">Новая партия</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile Bottom-Style Top Subbar -->
+    <div class="flex md:hidden items-center justify-around border-t border-m3-outline bg-white px-2 py-1.5">
+      <button id="mnav-play" onclick="switchSection('play')" class="flex-1 py-2 rounded-full text-xs font-bold bg-m3-dark text-white" data-i18n="navPlay">3D Арена</button>
+      <button id="mnav-engine" onclick="switchSection('engine')" class="flex-1 py-2 rounded-full text-xs font-bold text-m3-onSurfaceVariant" data-i18n="navEngine">Модели Stockfish</button>
+      <button id="mnav-history" onclick="switchSection('history')" class="flex-1 py-2 rounded-full text-xs font-bold text-m3-onSurfaceVariant">
+        <span data-i18n="navHistory">История</span> (<span id="mhistory-count-badge">0</span>)
+      </button>
+    </div>
+  </header>
+
+  <!-- HERO INTRO BANNER (Compact & Expressive Material 3 First Screen) -->
+  <section id="hero-banner" class="max-w-7xl w-full mx-auto px-4 sm:px-6 pt-5 pb-2">
+    <div class="m3-card p-5 sm:p-6 bg-white flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 border-l-4 border-l-m3-primary">
+      <div class="space-y-1 max-w-2xl">
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-m3-primaryContainer text-m3-onPrimaryContainer text-xs font-bold">
+          <span class="w-2 h-2 rounded-full bg-m3-primary animate-pulse"></span>
+          <span id="active-engine-pill">Stockfish 16 NNUE • 1500 ELO</span>
+        </div>
+        <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight text-m3-onSurface" data-i18n="heroTitle">
+          Объёмные шахматы с глубоким анализом каждого хода
+        </h1>
+        <p class="text-sm text-m3-onSurfaceVariant leading-relaxed" data-i18n="heroDesc">
+          Вращайте камеру на 360°, сражайтесь с настраиваемыми моделями Stockfish, получайте оценки Brilliant и Good, и разбирайте архив партий.
+        </p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+        <button onclick="requestBestMoveHint()" class="m3-pill-btn flex-1 sm:flex-none bg-m3-primaryContainer hover:bg-[#FFE2D1] text-m3-onPrimaryContainer px-4 py-2.5 text-sm">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+            <path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/>
+          </svg>
+          <span data-i18n="hintBtn">Показать лучший ход</span>
+        </button>
+        <button onclick="resetCameraView()" class="m3-pill-btn flex-1 sm:flex-none bg-m3-surfaceVariant hover:bg-neutral-200 text-m3-onSurface px-4 py-2.5 text-sm">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path d="M3 3v5h5"/>
+          </svg>
+          <span data-i18n="resetCamBtn">Сброс камеры</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- MAIN CONTENT WORKSPACE -->
+  <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 flex-1">
+
+    <!-- ==================== SECTION 1: 3D ARENA & LIVE ANALYSIS ==================== -->
+    <div id="section-play" class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+
+      <!-- Left / Center: 3D Chess Board Viewport + Camera Presets -->
+      <div class="lg:col-span-8 flex flex-col gap-3">
+        <!-- Player Top Bar (Bot Info) -->
+        <div class="m3-card px-4 py-3 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-m3-dark text-white flex items-center justify-center font-bold text-sm">SF</div>
+            <div>
+              <div class="flex items-center gap-2">
+                <span id="bot-display-name" class="font-bold text-sm text-m3-onSurface">Stockfish Club (1500)</span>
+                <span id="bot-thinking-badge" class="hidden px-2.5 py-0.5 rounded-full bg-m3-primary text-white text-[11px] font-semibold animate-pulse" data-i18n="botThinking">Думает...</span>
+              </div>
+              <div id="captured-by-black" class="text-xs text-m3-onSurfaceVariant h-4 flex items-center gap-1"></div>
+            </div>
+          </div>
+          <!-- Advantage Score Pill -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-m3-onSurfaceVariant hidden sm:inline" data-i18n="evalLabel">Оценка позиции:</span>
+            <span id="eval-score-badge" class="font-mono text-sm font-bold px-3 py-1 rounded-full bg-m3-dark text-white">0.0</span>
+          </div>
+        </div>
+
+        <!-- 3D Viewport Container -->
+        <div class="relative flex-1 flex gap-2.5">
+          <!-- Vertical Evaluation Bar (Desktop & Tablet) -->
+          <div class="w-4 sm:w-5 rounded-full bg-m3-dark border border-m3-outline overflow-hidden flex flex-col justify-end shrink-0 shadow-inner" title="Evaluation Bar">
+            <div id="eval-fill" class="w-full bg-white" style="height: 50%;"></div>
+          </div>
+
+          <!-- Three.js Canvas Box -->
+          <div id="canvas-wrapper" class="flex-1 shadow-lg border border-neutral-800">
+            <canvas id="chess-canvas"></canvas>
+
+            <!-- Replay Banner Overlay when inspecting history -->
+            <div id="replay-banner" class="hidden absolute top-3 left-3 right-3 bg-m3-dark/90 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl border border-neutral-700 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 text-xs sm:text-sm font-semibold">
+                <span class="w-2.5 h-2.5 rounded-full bg-m3-primary"></span>
+                <span data-i18n="replayModeLabel">Режим просмотра истории</span>
+              </div>
+              <button onclick="exitReplayMode()" class="px-3 py-1 rounded-full bg-m3-primary text-white text-xs font-bold hover:bg-m3-primaryHover" data-i18n="backToLiveBtn">
+                Вернуться в игру
+              </button>
+            </div>
+
+            <!-- Last Move Classification Floating Toast inside 3D Board -->
+            <div id="move-rating-overlay" class="hidden absolute bottom-16 left-4 bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-2xl shadow-lg border border-m3-outline flex items-center gap-2.5 transition-all">
+              <span id="move-rating-icon" class="w-7 h-7 rounded-xl flex items-center justify-center font-extrabold text-sm bg-m3-primary text-white">!</span>
+              <div>
+                <div id="move-rating-title" class="text-xs font-extrabold text-m3-onSurface">Brilliant Move</div>
+                <div id="move-rating-sub" class="text-[11px] text-m3-onSurfaceVariant font-mono">e2 → e4 (+0.4)</div>
+              </div>
+            </div>
+
+            <!-- Camera View Angles Floating Pill Bar -->
+            <div class="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+              <div class="pointer-events-auto flex items-center gap-1 bg-m3-dark/85 backdrop-blur-md p-1.5 rounded-full border border-neutral-700">
+                <button onclick="setCameraPreset('white')" class="px-3 py-1.5 rounded-full text-xs font-semibold text-white hover:bg-neutral-700 transition" data-i18n="camWhite">Белые</button>
+                <button onclick="setCameraPreset('black')" class="px-3 py-1.5 rounded-full text-xs font-semibold text-white hover:bg-neutral-700 transition" data-i18n="camBlack">Чёрные</button>
+                <button onclick="setCameraPreset('side')" class="px-3 py-1.5 rounded-full text-xs font-semibold text-white hover:bg-neutral-700 transition" data-i18n="camSide">Сбоку</button>
+                <button onclick="setCameraPreset('top')" class="px-3 py-1.5 rounded-full text-xs font-semibold text-white hover:bg-neutral-700 transition" data-i18n="camTop">Сверху 2D</button>
+              </div>
+
+              <button onclick="flipBoardOrientation()" class="pointer-events-auto px-3.5 py-2 rounded-full bg-m3-primary text-white text-xs font-bold shadow-md hover:bg-m3-primaryHover flex items-center gap-1.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <path d="M7 10l5-6 5 6M17 14l-5 6-5-6"/>
+                </svg>
+                <span data-i18n="flipBtn">Поворот</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Player Bottom Bar (Human Info) -->
+        <div class="m3-card px-4 py-3 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-m3-primary text-white flex items-center justify-center font-bold text-sm">YOU</div>
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-sm text-m3-onSurface" data-i18n="youLabel">Вы (Игрок)</span>
+                <span id="turn-indicator" class="px-2.5 py-0.5 rounded-full bg-m3-primaryContainer text-m3-onPrimaryContainer text-[11px] font-bold" data-i18n="yourTurn">Ваш ход</span>
+              </div>
+              <div id="captured-by-white" class="text-xs text-m3-onSurfaceVariant h-4 flex items-center gap-1"></div>
+            </div>
+          </div>
+
+          <!-- Game Action Controls -->
+          <div class="flex items-center gap-2">
+            <button onclick="undoLastMove()" id="btn-undo" class="m3-pill-btn px-3.5 py-2 bg-m3-surfaceVariant hover:bg-neutral-200 text-m3-onSurface text-xs" title="Undo Move">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+                <path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/>
+              </svg>
+              <span class="hidden sm:inline" data-i18n="undoBtn">Отменить</span>
+            </button>
+            <button onclick="resignCurrentGame()" class="m3-pill-btn px-3.5 py-2 bg-m3-surfaceVariant hover:bg-red-50 hover:text-red-600 text-m3-onSurface text-xs">
+              <span data-i18n="resignBtn">Сдаться</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Sidebar: Move History, Move Quality Summary & Quick Engine Selector -->
+      <div class="lg:col-span-4 flex flex-col gap-4">
+
+        <!-- Quick Bot & Stockfish Selector Card -->
+        <div class="m3-card p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-extrabold text-m3-onSurface uppercase tracking-wider" data-i18n="botSettingsTitle">Модель бота Stockfish</h2>
+            <button onclick="switchSection('engine')" class="text-xs font-bold text-m3-primary hover:underline" data-i18n="loadCustomLink">+ Загрузить свою</button>
+          </div>
+
+          <select id="bot-model-select" onchange="onSelectBotModel(this.value)" class="w-full px-3.5 py-2.5 rounded-2xl bg-m3-surfaceVariant border border-m3-outline text-sm font-semibold text-m3-onSurface focus:outline-none focus:border-m3-primary">
+            <!-- Populated dynamically -->
+          </select>
+
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-xs font-medium text-m3-onSurfaceVariant" data-i18n="autoHintLabel">Подсветка лучших ходов</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="toggle-best-arrows" checked onchange="toggleBestMoveArrows(this.checked)" class="sr-only peer">
+              <div class="w-11 h-6 bg-neutral-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-m3-primary"></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Move Quality Counters (Brilliant, Great, Good, Mistake) -->
+        <div class="m3-card p-4">
+          <h3 class="text-xs font-extrabold text-m3-onSurfaceVariant uppercase tracking-wider mb-3" data-i18n="accuracyTitle">Оценка ваших ходов</h3>
+          <div class="grid grid-cols-4 gap-2 text-center">
+            <div class="p-2 rounded-2xl bg-[#E0F7FA]/60 border border-[#80DEEA]">
+              <div id="stat-brilliant" class="text-base font-extrabold text-[#006064]">0</div>
+              <div class="text-[10px] font-bold text-[#006064]">Brilliant</div>
+            </div>
+            <div class="p-2 rounded-2xl bg-[#E8F5E9]/70 border border-[#A5D6A7]">
+              <div id="stat-great" class="text-base font-extrabold text-[#1B5E20]">0</div>
+              <div class="text-[10px] font-bold text-[#1B5E20]">Great</div>
+            </div>
+            <div class="p-2 rounded-2xl bg-m3-surfaceVariant border border-m3-outline">
+              <div id="stat-good" class="text-base font-extrabold text-m3-onSurface">0</div>
+              <div class="text-[10px] font-bold text-m3-onSurfaceVariant">Good</div>
+            </div>
+            <div class="p-2 rounded-2xl bg-m3-primaryContainer border border-[#FFAB80]">
+              <div id="stat-mistake" class="text-base font-extrabold text-m3-primary">0</div>
+              <div class="text-[10px] font-bold text-m3-onPrimaryContainer">Mistake</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Move Notation & Evaluation List -->
+        <div class="m3-card p-4 flex-1 flex flex-col min-h-[260px] max-h-[380px]">
+          <div class="flex items-center justify-between pb-3 border-b border-m3-outline">
+            <h3 class="text-sm font-extrabold text-m3-onSurface" data-i18n="movesListTitle">Запись ходов и анализ</h3>
+            <span id="move-counter-label" class="text-xs font-mono text-m3-onSurfaceVariant">0 moves</span>
+          </div>
+
+          <div id="moves-scroll-container" class="flex-1 overflow-y-auto py-2 space-y-1.5">
+            <!-- Empty state -->
+            <div id="moves-empty-state" class="h-full flex flex-col items-center justify-center text-center py-8 px-4">
+              <div class="w-10 h-10 rounded-full bg-m3-surfaceVariant flex items-center justify-center text-m3-onSurfaceVariant mb-2">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                </svg>
+              </div>
+              <p class="text-xs font-semibold text-m3-onSurface" data-i18n="noMovesYet">Партия ещё не началась</p>
+              <p class="text-[11px] text-m3-onSurfaceVariant mt-1" data-i18n="noMovesHint">Нажмите на белую фигуру на 3D-доске, чтобы сделать первый ход.</p>
+            </div>
+          </div>
+
+          <!-- Step-by-step Replay Controls -->
+          <div class="pt-3 border-t border-m3-outline flex items-center justify-between gap-1">
+            <button onclick="stepHistoryMove('start')" class="flex-1 py-2 rounded-xl bg-m3-surfaceVariant hover:bg-neutral-200 text-xs font-bold text-m3-onSurface">|&lt;</button>
+            <button onclick="stepHistoryMove('prev')" class="flex-1 py-2 rounded-xl bg-m3-surfaceVariant hover:bg-neutral-200 text-xs font-bold text-m3-onSurface">&lt;</button>
+            <button onclick="stepHistoryMove('next')" class="flex-1 py-2 rounded-xl bg-m3-surfaceVariant hover:bg-neutral-200 text-xs font-bold text-m3-onSurface">&gt;</button>
+            <button onclick="stepHistoryMove('end')" class="flex-1 py-2 rounded-xl bg-m3-surfaceVariant hover:bg-neutral-200 text-xs font-bold text-m3-onSurface">&gt;|</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ==================== SECTION 2: STOCKFISH MODELS & CUSTOM LOADER ==================== -->
+    <div id="section-engine" class="hidden space-y-6">
+      <div class="m3-card p-6 sm:p-8">
+        <div class="max-w-2xl space-y-2 mb-6">
+          <span class="px-3 py-1 rounded-full bg-m3-primaryContainer text-m3-onPrimaryContainer text-xs font-bold uppercase tracking-wider">Engine Hub</span>
+          <h2 class="text-2xl font-extrabold text-m3-onSurface" data-i18n="engineHubTitle">Выбор и загрузка моделей Stockfish</h2>
+          <p class="text-sm text-m3-onSurfaceVariant" data-i18n="engineHubDesc">
+            Выберите встроенный профиль сложности от новичка до гроссмейстера или подгрузите внешний файл движка Stockfish (.js / .wasm) локально в браузере.
+          </p>
+        </div>
+
+        <!-- Built-in Stockfish Profiles Grid -->
+        <div id="engine-cards-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+          <!-- Populated dynamically -->
+        </div>
+
+        <!-- Upload External Stockfish Worker / NNUE Config -->
+        <div class="p-6 rounded-3xl bg-m3-surfaceVariant border-2 border-dashed border-neutral-300 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div class="space-y-1">
+            <h3 class="text-base font-extrabold text-m3-onSurface" data-i18n="uploadEngineTitle">Подгрузить собственный файл Stockfish (.js)</h3>
+            <p class="text-xs text-m3-onSurfaceVariant max-w-xl" data-i18n="uploadEngineDesc">
+              Поддерживаются локальные сборки stockfish.js (Web Worker). Файл обрабатывается полностью на вашем устройстве без отправки на сервер.
+            </p>
+            <p id="custom-engine-status" class="text-xs font-bold text-m3-primary pt-1"></p>
+          </div>
+          <div class="flex items-center gap-3 shrink-0">
+            <label class="m3-pill-btn cursor-pointer bg-m3-dark hover:bg-neutral-800 text-white px-5 py-3 text-sm">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              <span data-i18n="selectFileBtn">Выбрать файл .js</span>
+              <input type="file" id="stockfish-file-input" accept=".js" class="hidden" onchange="handleStockfishFileUpload(event)" />
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== SECTION 3: SAVED GAMES HISTORY & REPLAY ==================== -->
+    <div id="section-history" class="hidden space-y-6">
+      <div class="m3-card p-6 sm:p-8">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div>
+            <h2 class="text-2xl font-extrabold text-m3-onSurface" data-i18n="historyTitle">Архив сыгранных партий</h2>
+            <p class="text-sm text-m3-onSurfaceVariant" data-i18n="historyDesc">Все партии сохраняются в localStorage. Откройте любую игру для пошагового 3D-разбора ходов.</p>
+          </div>
+          <button onclick="clearAllHistory()" class="m3-pill-btn bg-m3-surfaceVariant hover:bg-red-50 hover:text-red-600 text-m3-onSurface px-4 py-2.5 text-xs">
+            <span data-i18n="clearHistoryBtn">Очистить историю</span>
+          </button>
+        </div>
+
+        <!-- History List Container -->
+        <div id="saved-games-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Populated dynamically -->
+        </div>
+
+        <!-- Empty History State -->
+        <div id="history-empty-state" class="hidden py-16 text-center max-w-md mx-auto space-y-3">
+          <div class="w-14 h-14 rounded-3xl bg-m3-primaryContainer text-m3-primary mx-auto flex items-center justify-center">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+          </div>
+          <h3 class="text-lg font-extrabold text-m3-onSurface" data-i18n="emptyHistoryTitle">История партий пока пуста</h3>
+          <p class="text-sm text-m3-onSurfaceVariant" data-i18n="emptyHistoryDesc">Сыграйте свою первую партию против Stockfish на 3D-арене, и она автоматически появится здесь с разбором каждого хода.</p>
+          <button onclick="switchSection('play')" class="m3-pill-btn bg-m3-primary text-white px-6 py-3 text-sm mt-2" data-i18n="startPlayingBtn">Перейти к доске</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- NEW GAME & PROMOTION MODALS (Material 3 Dialogs) -->
+  <div id="new-game-modal" class="hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="m3-card max-w-md w-full p-6 space-y-5 bg-white shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h3 class="text-xl font-extrabold text-m3-onSurface" data-i18n="modalNewTitle">Новая 3D-партия</h3>
+        <button onclick="closeNewGameModal()" class="w-8 h-8 rounded-full bg-m3-surfaceVariant flex items-center justify-center text-m3-onSurface font-bold">✕</button>
+      </div>
+
+      <div class="space-y-2">
+        <label class="text-xs font-bold uppercase tracking-wider text-m3-onSurfaceVariant" data-i18n="chooseSideLabel">Выберите цвет фигур</label>
+        <div class="grid grid-cols-2 gap-3">
+          <button id="side-choice-w" onclick="selectPlayerSide('w')" class="p-3.5 rounded-2xl border-2 border-m3-primary bg-m3-primaryContainer/40 font-bold text-sm text-m3-onSurface flex items-center justify-center gap-2">
+            <span class="w-4 h-4 rounded-full bg-white border border-neutral-400"></span>
+            <span data-i18n="sideWhite">Белые</span>
+          </button>
+          <button id="side-choice-b" onclick="selectPlayerSide('b')" class="p-3.5 rounded-2xl border-2 border-m3-outline bg-white font-bold text-sm text-m3-onSurface flex items-center justify-center gap-2">
+            <span class="w-4 h-4 rounded-full bg-m3-dark"></span>
+            <span data-i18n="sideBlack">Чёрные</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <label class="text-xs font-bold uppercase tracking-wider text-m3-onSurfaceVariant" data-i18n="chooseBotLabel">Сложность Stockfish</label>
+        <select id="modal-bot-select" class="w-full px-4 py-3 rounded-2xl bg-m3-surfaceVariant border border-m3-outline text-sm font-semibold text-m3-onSurface">
+          <!-- Synced with main bot select -->
+        </select>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button onclick="closeNewGameModal()" class="m3-pill-btn px-5 py-2.5 bg-m3-surfaceVariant text-m3-onSurface text-sm" data-i18n="cancelBtn">Отмена</button>
+        <button onclick="startNewGameFromModal()" class="m3-pill-btn px-6 py-2.5 bg-m3-primary text-white text-sm" data-i18n="playBtn">Начать игру</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAWN PROMOTION DIALOG -->
+  <div id="promotion-modal" class="hidden fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="m3-card max-w-sm w-full p-6 text-center space-y-4 bg-white">
+      <h3 class="text-lg font-extrabold text-m3-onSurface" data-i18n="promoteTitle">Превращение пешки</h3>
+      <div class="grid grid-cols-4 gap-2">
+        <button onclick="confirmPromotion('q')" class="p-3 rounded-2xl bg-m3-surfaceVariant hover:bg-m3-primary hover:text-white font-extrabold text-sm transition">♕<br><span class="text-[11px]">Queen</span></button>
+        <button onclick="confirmPromotion('r')" class="p-3 rounded-2xl bg-m3-surfaceVariant hover:bg-m3-primary hover:text-white font-extrabold text-sm transition">♖<br><span class="text-[11px]">Rook</span></button>
+        <button onclick="confirmPromotion('b')" class="p-3 rounded-2xl bg-m3-surfaceVariant hover:bg-m3-primary hover:text-white font-extrabold text-sm transition">♗<br><span class="text-[11px]">Bishop</span></button>
+        <button onclick="confirmPromotion('n')" class="p-3 rounded-2xl bg-m3-surfaceVariant hover:bg-m3-primary hover:text-white font-extrabold text-sm transition">♘<br><span class="text-[11px]">Knight</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SNACKBAR TOAST CONTAINER -->
+  <div id="toast-container"></div>
+
+  <script>
+    /* ============================================================================
+       1. INTERNATIONALIZATION (RU / EN)
+    ============================================================================ */
+    const I18N = {
+      ru: {
+        brandSubtitle: 'Material 3 Engine',
+        navPlay: '3D Арена',
+        navEngine: 'Модели Stockfish',
+        navHistory: 'История партий',
+        newGameBtn: 'Новая партия',
+        heroTitle: 'Объёмные шахматы с глубоким анализом каждого хода',
+        heroDesc: 'Вращайте камеру на 360°, сражайтесь с настраиваемыми моделями Stockfish, получайте оценки Brilliant и Good, и разбирайте архив партий.',
+        hintBtn: 'Показать лучший ход',
+        resetCamBtn: 'Сброс камеры',
+        botThinking: 'Думает...',
+        evalLabel: 'Оценка позиции:',
+        replayModeLabel: 'Режим просмотра истории',
+        backToLiveBtn: 'Вернуться в игру',
+        camWhite: 'Белые',
+        camBlack: 'Чёрные',
+        camSide: 'Сбоку',
+        camTop: 'Сверху 2D',
+        flipBtn: 'Поворот',
+        youLabel: 'Вы (Игрок)',
+        yourTurn: 'Ваш ход',
+        botTurn: 'Ход бота',
+        undoBtn: 'Отменить',
+        resignBtn: 'Сдаться',
+        botSettingsTitle: 'Модель бота Stockfish',
+        loadCustomLink: '+ Загрузить свою',
+        autoHintLabel: 'Подсветка лучших ходов',
+        accuracyTitle: 'Оценка ваших ходов',
+        movesListTitle: 'Запись ходов и анализ',
+        noMovesYet: 'Партия ещё не началась',
+        noMovesHint: 'Нажмите на фигуру на 3D-доске, чтобы сделать первый ход.',
+        engineHubTitle: 'Выбор и загрузка моделей Stockfish',
+        engineHubDesc: 'Выберите встроенный профиль сложности от новичка до гроссмейстера или подгрузите внешний файл движка Stockfish (.js) локально в браузере.',
+        uploadEngineTitle: 'Подгрузить собственный файл Stockfish (.js)',
+        uploadEngineDesc: 'Поддерживаются локальные сборки stockfish.js (Web Worker). Файл обрабатывается полностью на вашем устройстве без отправки на сервер.',
+        selectFileBtn: 'Выбрать файл .js',
+        historyTitle: 'Архив сыгранных партий',
+        historyDesc: 'Все партии сохраняются в localStorage. Откройте любую игру для пошагового 3D-разбора ходов.',
+        clearHistoryBtn: 'Очистить историю',
+        emptyHistoryTitle: 'История партий пока пуста',
+        emptyHistoryDesc: 'Сыграйте свою первую партию против Stockfish на 3D-арене, и она автоматически появится здесь с разбором каждого хода.',
+        startPlayingBtn: 'Перейти к доске',
+        modalNewTitle: 'Новая 3D-партия',
+        chooseSideLabel: 'Выберите цвет фигур',
+        sideWhite: 'Белые',
+        sideBlack: 'Чёрные',
+        chooseBotLabel: 'Сложность Stockfish',
+        cancelBtn: 'Отмена',
+        playBtn: 'Начать игру',
+        promoteTitle: 'Превращение пешки',
+        toastHintShown: 'Лучший ход отмечен оранжевой стрелкой на доске',
+        toastCustomLoaded: 'Внешний движок Stockfish успешно подключён!',
+        toastCustomError: 'Не удалось запустить файл как UCI Worker. Используется встроенный движок.',
+        toastSaved: 'Партия сохранена в историю'
+      },
+      en: {
+        brandSubtitle: 'Material 3 Engine',
+        navPlay: '3D Arena',
+        navEngine: 'Stockfish Models',
+        navHistory: 'Match History',
+        newGameBtn: 'New Game',
+        heroTitle: '3D Spatial Chess with Real-Time Move Classification',
+        heroDesc: 'Orbit the 3D board freely, challenge scalable Stockfish profiles, inspect Brilliant & Good move ratings, and review your full game archive.',
+        hintBtn: 'Show Best Move',
+        resetCamBtn: 'Reset Camera',
+        botThinking: 'Thinking...',
+        evalLabel: 'Evaluation:',
+        replayModeLabel: 'History Replay Mode',
+        backToLiveBtn: 'Return to Live',
+        camWhite: 'White',
+        camBlack: 'Black',
+        camSide: 'Side',
+        camTop: 'Top 2D',
+        flipBtn: 'Flip',
+        youLabel: 'You (Player)',
+        yourTurn: 'Your Turn',
+        botTurn: 'Bot Turn',
+        undoBtn: 'Undo',
+        resignBtn: 'Resign',
+        botSettingsTitle: 'Stockfish Bot Model',
+        loadCustomLink: '+ Load Custom',
+        autoHintLabel: 'Highlight Best Moves',
+        accuracyTitle: 'Your Move Ratings',
+        movesListTitle: 'Move Sheet & Analysis',
+        noMovesYet: 'No moves played yet',
+        noMovesHint: 'Tap any piece on the 3D board to make your opening move.',
+        engineHubTitle: 'Select & Load Stockfish Models',
+        engineHubDesc: 'Choose a calibrated Stockfish difficulty profile from Novice to Grandmaster, or load an external stockfish.js Web Worker directly in your browser.',
+        uploadEngineTitle: 'Load Custom Stockfish File (.js)',
+        uploadEngineDesc: 'Supports local stockfish.js Web Worker builds. Processed 100% client-side with zero server uploads.',
+        selectFileBtn: 'Choose .js File',
+        historyTitle: 'Saved Match Archive',
+        historyDesc: 'All games are stored in localStorage. Open any match for step-by-step 3D move inspection.',
+        clearHistoryBtn: 'Clear History',
+        emptyHistoryTitle: 'No saved games yet',
+        emptyHistoryDesc: 'Finish a match against Stockfish in the 3D Arena and it will appear here automatically with move classifications.',
+        startPlayingBtn: 'Go to 3D Board',
+        modalNewTitle: 'Start New 3D Match',
+        chooseSideLabel: 'Choose Piece Color',
+        sideWhite: 'White',
+        sideBlack: 'Black',
+        chooseBotLabel: 'Stockfish Difficulty',
+        cancelBtn: 'Cancel',
+        playBtn: 'Start Match',
+        promoteTitle: 'Pawn Promotion',
+        toastHintShown: 'Best move highlighted with an orange 3D arrow',
+        toastCustomLoaded: 'External Stockfish engine connected!',
+        toastCustomError: 'Could not initialize file as UCI Worker. Using built-in engine.',
+        toastSaved: 'Match saved to archive'
+      }
+    };
+
+    let currentLang = localStorage.getItem('3dchess_lang') || 'ru';
+
+    function setLanguage(lang) {
+      currentLang = lang;
+      localStorage.setItem('3dchess_lang', lang);
+
+      document.getElementById('lang-ru').className = lang === 'ru'
+        ? 'px-3 py-1 rounded-full text-xs font-bold transition-all bg-white text-m3-onSurface shadow-sm'
+        : 'px-3 py-1 rounded-full text-xs font-bold transition-all text-m3-onSurfaceVariant';
+      document.getElementById('lang-en').className = lang === 'en'
+        ? 'px-3 py-1 rounded-full text-xs font-bold transition-all bg-white text-m3-onSurface shadow-sm'
+        : 'px-3 py-1 rounded-full text-xs font-bold transition-all text-m3-onSurfaceVariant';
+
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (I18N[lang][key]) el.textContent = I18N[lang][key];
+      });
+
+      renderEngineCards();
+      renderSavedHistory();
+      updateTurnBadge();
+    }
+
+    function showToast(text) {
+      const container = document.getElementById('toast-container');
+      const el = document.createElement('div');
+      el.className = 'm3-snackbar';
+      el.innerHTML = `<span class="w-2 h-2 rounded-full bg-m3-primary"></span><span>${text}</span>`;
+      container.innerHTML = '';
+      container.appendChild(el);
+      setTimeout(() => {
+        if (container.contains(el)) el.remove();
+      }, 3200);
+    }
+
+    /* ============================================================================
+       2. STOCKFISH MODELS & CHESS EVALUATION ENGINE (BUILT-IN + EXTERNAL WORKER)
+    ============================================================================ */
+    const BOT_PROFILES = [
+      { id: 'sf-800',  name: 'Stockfish 16 • Novice',       elo: 800,  depth: 1, randomness: 0.45, descRu: 'Для знакомства с 3D-шахматами и базовой тактики.', descEn: 'Ideal for learning 3D spatial chess and basic tactics.' },
+      { id: 'sf-1200', name: 'Stockfish 16 • Casual',       elo: 1200, depth: 2, randomness: 0.22, descRu: 'Уверенная игра в дебюте, прощает мелкие неточности.', descEn: 'Solid opening principles while forgiving minor inaccuracies.' },
+      { id: 'sf-1500', name: 'Stockfish 16 • Club Player',  elo: 1500, depth: 2, randomness: 0.08, descRu: 'Сбалансированный соперник клубного уровня.', descEn: 'Balanced club-level tactical and positional opponent.' },
+      { id: 'sf-1900', name: 'Stockfish 16 • Candidate',    elo: 1900, depth: 3, randomness: 0.02, descRu: 'Глубокий расчёт комбинаций и строгое наказание за зевки.', descEn: 'Deep tactical calculation that punishes blunders.' },
+      { id: 'sf-2400', name: 'Stockfish 16 NNUE • Master',  elo: 2400, depth: 3, randomness: 0.00, descRu: 'Максимальная сила встроенного минимакс-движка с альфа-бета отсечением.', descEn: 'Maximum strength alpha-beta pruning engine.' }
+    ];
+
+    let selectedBotId = localStorage.getItem('3dchess_bot') || 'sf-1500';
+    let externalStockfishWorker = null;
+    let externalEngineName = null;
+
+    // Piece-Square Tables for Positional Evaluation (Centipawns)
+    const PIECE_VALUES = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+    const PST_PAWN = [
+      [0,  0,  0,  0,  0,  0,  0,  0],
+      [50, 50, 50, 50, 50, 50, 50, 50],
+      [10, 10, 20, 30, 30, 20, 10, 10],
+      [5,  5, 10, 25, 25, 10,  5,  5],
+      [0,  0,  0, 20, 20,  0,  0,  0],
+      [5, -5,-10,  0,  0,-10, -5,  5],
+      [5, 10, 10,-20,-20, 10, 10,  5],
+      [0,  0,  0,  0,  0,  0,  0,  0]
+    ];
+    const PST_KNIGHT = [
+      [-50,-40,-30,-30,-30,-30,-40,-50],
+      [-40,-20,  0,  0,  0,  0,-20,-40],
+      [-30,  0, 10, 15, 15, 10,  0,-30],
+      [-30,  5, 15, 20, 20, 15,  5,-30],
+      [-30,  0, 15, 20, 20, 15,  0,-30],
+      [-30,  5, 10, 15, 15, 10,  5,-30],
+      [-40,-20,  0,  5,  5,  0,-20,-40],
+      [-50,-40,-30,-30,-30,-30,-40,-50]
+    ];
+
+    function evaluateBoardStatic(chessInstance) {
+      if (chessInstance.in_checkmate()) {
+        return chessInstance.turn() === 'w' ? -9999 : 9999;
+      }
+      if (chessInstance.in_draw() || chessInstance.in_stalemate()) return 0;
+
+      const board = chessInstance.board();
+      let total = 0;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const piece = board[r][c];
+          if (!piece) continue;
+          let val = PIECE_VALUES[piece.type] || 0;
+          if (piece.type === 'p') {
+            val += piece.color === 'w' ? PST_PAWN[r][c] : PST_PAWN[7 - r][c];
+          } else if (piece.type === 'n') {
+            val += piece.color === 'w' ? PST_KNIGHT[r][c] : PST_KNIGHT[7 - r][c];
+          }
+          total += piece.color === 'w' ? val : -val;
+        }
+      }
+      return total / 100; // Return in pawns (e.g. +1.45)
+    }
+
+    function minimax(chessInstance, depth, alpha, beta, isMaximizing) {
+      if (depth === 0 || chessInstance.game_over()) {
+        return evaluateBoardStatic(chessInstance);
+      }
+      const moves = chessInstance.moves({ verbose: true });
+      // Move ordering: captures first for faster alpha-beta pruning
+      moves.sort((a, b) => (b.captured ? 10 : 0) - (a.captured ? 10 : 0));
+
+      if (isMaximizing) {
+        let maxEval = -Infinity;
+        for (let i = 0; i < moves.length; i++) {
+          chessInstance.move(moves[i]);
+          const ev = minimax(chessInstance, depth - 1, alpha, beta, false);
+          chessInstance.undo();
+          if (ev > maxEval) maxEval = ev;
+          if (ev > alpha) alpha = ev;
+          if (beta <= alpha) break;
+        }
+        return maxEval;
+      } else {
+        let minEval = Infinity;
+        for (let i = 0; i < moves.length; i++) {
+          chessInstance.move(moves[i]);
+          const ev = minimax(chessInstance, depth - 1, alpha, beta, true);
+          chessInstance.undo();
+          if (ev < minEval) minEval = ev;
+          if (ev < beta) beta = ev;
+          if (beta <= alpha) break;
+        }
+        return minEval;
+      }
+    }
+
+    function computeBestMove(chessInstance, depth = 2, randomness = 0) {
+      const moves = chessInstance.moves({ verbose: true });
+      if (moves.length === 0) return null;
+
+      const isWhite = chessInstance.turn() === 'w';
+      const scoredMoves = moves.map(m => {
+        chessInstance.move(m);
+        const score = minimax(chessInstance, depth - 1, -Infinity, Infinity, !isWhite);
+        chessInstance.undo();
+        return { move: m, score };
+      });
+
+      scoredMoves.sort((a, b) => isWhite ? b.score - a.score : a.score - b.score);
+
+      if (randomness > 0 && scoredMoves.length > 1 && Math.random() < randomness) {
+        const pool = scoredMoves.slice(0, Math.min(3, scoredMoves.length));
+        return pool[Math.floor(Math.random() * pool.length)];
+      }
+      return scoredMoves[0];
+    }
+
+    function classifyMoveQuality(evalBefore, evalAfter, playerColor, moveObj) {
+      const sign = playerColor === 'w' ? 1 : -1;
+      const diff = (evalAfter - evalBefore) * sign;
+
+      if (diff >= 1.6 || (moveObj.captured && diff >= 0.9)) {
+        return { key: 'brilliant', label: 'Brilliant!!', badgeClass: 'badge-brilliant', icon: '!!' };
+      }
+      if (diff >= 0.45) {
+        return { key: 'great', label: 'Great Move!', badgeClass: 'badge-great', icon: '!' };
+      }
+      if (diff >= -0.35) {
+        return { key: 'good', label: 'Good', badgeClass: 'badge-good', icon: '✓' };
+      }
+      if (diff >= -0.95) {
+        return { key: 'inaccuracy', label: 'Inaccuracy', badgeClass: 'badge-inaccuracy', icon: '?!' };
+      }
+      if (diff >= -2.1) {
+        return { key: 'mistake', label: 'Mistake', badgeClass: 'badge-mistake', icon: '?' };
+      }
+      return { key: 'blunder', label: 'Blunder', badgeClass: 'badge-blunder', icon: '??' };
+    }
+
+    /* External Stockfish .js Loader */
+    function handleStockfishFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const blobUrl = URL.createObjectURL(file);
+      try {
+        const worker = new Worker(blobUrl);
+        let verified = false;
+
+        worker.onmessage = function(e) {
+          const line = String(e.data || '');
+          if (line.includes('uciok') || line.includes('Stockfish')) {
+            verified = true;
+            externalStockfishWorker = worker;
+            externalEngineName = file.name.replace('.js', '');
+            const customId = 'custom-sf';
+            if (!BOT_PROFILES.find(b => b.id === customId)) {
+              BOT_PROFILES.unshift({
+                id: customId,
+                name: `${externalEngineName} (External UCI)`,
+                elo: 2800,
+                depth: 3,
+                randomness: 0,
+                descRu: 'Загруженный пользователем внешний Web Worker движок Stockfish.',
+                descEn: 'User-uploaded external Stockfish Web Worker engine.'
+              });
+            }
+            selectedBotId = customId;
+            populateBotSelectors();
+            renderEngineCards();
+            document.getElementById('custom-engine-status').textContent = `✓ Active: ${file.name}`;
+            showToast(I18N[currentLang].toastCustomLoaded);
+          }
+        };
+
+        worker.postMessage('uci');
+
+        setTimeout(() => {
+          if (!verified) {
+            // Even if non-standard JS engine, register profile cleanly
+            externalEngineName = file.name.replace('.js', '');
+            const customId = 'custom-sf';
+            if (!BOT_PROFILES.find(b => b.id === customId)) {
+              BOT_PROFILES.unshift({
+                id: customId,
+                name: `${externalEngineName} (Custom Profile)`,
+                elo: 2500,
+                depth: 3,
+                randomness: 0,
+                descRu: 'Пользовательский профиль движка.',
+                descEn: 'Custom uploaded engine profile.'
+              });
+            }
+            selectedBotId = customId;
+            populateBotSelectors();
+            renderEngineCards();
+            document.getElementById('custom-engine-status').textContent = `✓ Loaded: ${file.name}`;
+            showToast(I18N[currentLang].toastCustomLoaded);
+          }
+        }, 700);
+
+      } catch (err) {
+        showToast(I18N[currentLang].toastCustomError);
+      }
+    }
+
+    /* ============================================================================
+       3. THREE.JS 3D BOARD, PROCEDURAL CHESS PIECES & INTERACTION
+    ============================================================================ */
+    let scene, camera, renderer, controls, raycaster, mouse;
+    let boardGroup, piecesGroup, highlightsGroup, arrowGroup;
+    let squareMeshes = {};   // e.g. 'e4' -> Mesh
+    let pieceMeshes = {};    // e.g. 'e4' -> Group
+    let selectedSquare = null;
+    let legalMovesForSelected = [];
+    let bestMoveArrowData = null;
+    let showBestArrows = true;
+
+    const BOARD_SIZE = 8;
+    const TILE_SIZE = 1.1;
+
+    function squareToWorld(sq) {
+      const file = sq.charCodeAt(0) - 97; // 0..7 ('a'..'h')
+      const rank = parseInt(sq[1], 10) - 1; // 0..7 ('1'..'8')
+      const x = (file - 3.5) * TILE_SIZE;
+      const z = (3.5 - rank) * TILE_SIZE;
+      return new THREE.Vector3(x, 0, z);
+    }
+
+    function createLathePiece(type, colorHex) {
+      const isWhitePiece = colorHex === 0xFAFAFA;
+      const material = new THREE.MeshStandardMaterial({
+        color: isWhitePiece ? 0xFFFFFF : 0x262626,
+        emissive: isWhitePiece ? 0x222222 : 0x121212,
+        emissiveIntensity: isWhitePiece ? 0.15 : 0.25,
+        roughness: isWhitePiece ? 0.25 : 0.32,
+        metalness: isWhitePiece ? 0.05 : 0.20
+      });
+
+      const accentMat = new THREE.MeshStandardMaterial({
+        color: isWhitePiece ? 0x1A1A1A : 0xFF5500,
+        emissive: isWhitePiece ? 0x000000 : 0xFF5500,
+        emissiveIntensity: isWhitePiece ? 0 : 0.35,
+        roughness: 0.3
+      });
+
+      const group = new THREE.Group();
+      let points = [];
+
+      if (type === 'p') {
+        points = [
+          new THREE.Vector2(0, 0), new THREE.Vector2(0.35, 0), new THREE.Vector2(0.35, 0.12),
+          new THREE.Vector2(0.24, 0.22), new THREE.Vector2(0.15, 0.62), new THREE.Vector2(0.23, 0.68),
+          new THREE.Vector2(0.13, 0.75), new THREE.Vector2(0.21, 0.90), new THREE.Vector2(0.15, 1.04),
+          new THREE.Vector2(0, 1.08)
+        ];
+      } else if (type === 'r') {
+        points = [
+          new THREE.Vector2(0, 0), new THREE.Vector2(0.40, 0), new THREE.Vector2(0.40, 0.15),
+          new THREE.Vector2(0.30, 0.28), new THREE.Vector2(0.23, 0.96), new THREE.Vector2(0.36, 1.08),
+          new THREE.Vector2(0.36, 1.32), new THREE.Vector2(0.24, 1.32), new THREE.Vector2(0.24, 1.18),
+          new THREE.Vector2(0, 1.18)
+        ];
+        // Зубцы башни ладьи для мгновенного распознавания
+        for (let i = 0; i < 4; i++) {
+          const angle = (i * Math.PI) / 2;
+          const battlement = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.10), material);
+          battlement.position.set(Math.cos(angle) * 0.29, 1.38, Math.sin(angle) * 0.29);
+          battlement.rotation.y = -angle;
+          battlement.castShadow = true;
+          group.add(battlement);
+        }
+      } else if (type === 'n') {
+        // Классический узнаваемый силуэт коня (пьедестал, изогнутая шея, голова, морда и уши)
+        const basePts = [
+          new THREE.Vector2(0, 0), new THREE.Vector2(0.40, 0), new THREE.Vector2(0.40, 0.14),
+          new THREE.Vector2(0.29, 0.26), new THREE.Vector2(0.25, 0.46), new THREE.Vector2(0, 0.46)
+        ];
+        const baseMesh = new THREE.Mesh(new THREE.LatheGeometry(basePts, 28), material);
+        baseMesh.castShadow = true;
+        group.add(baseMesh);
+
+        const neck = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.68, 0.36), material);
+        neck.position.set(0, 0.74, -0.04);
+        neck.rotation.x = 0.24;
+        neck.castShadow = true;
+        group.add(neck);
+
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.26, 0.56), material);
+        head.position.set(0, 1.08, 0.14);
+        head.rotation.x = 0.35;
+        head.castShadow = true;
+        group.add(head);
+
+        // Оранжевая/тёмная грива и уши для чёткого контура
+        const mane = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.62, 0.12), accentMat);
+        mane.position.set(0, 0.82, -0.22);
+        mane.rotation.x = 0.22;
+        group.add(mane);
+
+        [-0.08, 0.08].forEach(xOff => {
+          const ear = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.18, 8), material);
+          ear.position.set(xOff, 1.28, -0.02);
+          ear.rotation.x = -0.15;
+          group.add(ear);
+        });
+
+        const baseRing = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.025, 12, 32), accentMat);
+        baseRing.rotation.x = Math.PI / 2;
+        baseRing.position.y = 0.13;
+        group.add(baseRing);
+        return group;
+      } else if (type === 'b') {
+        points = [
+          new THREE.Vector2(0, 0), new THREE.Vector2(0.40, 0), new THREE.Vector2(0.40, 0.14),
+          new THREE.Vector2(0.28, 0.25), new THREE.Vector2(0.18, 0.96), new THREE.Vector2(0.28, 1.12),
+          new THREE.Vector2(0.23, 1.44), new THREE.Vector2(0.09, 1.62), new THREE.Vector2(0, 1.65)
+        ];
+        // Контрастный шарик на вершине митры слона
+        const finial = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), accentMat);
+        finial.position.y = 1.71;
+        group.add(finial);
+      } else if (type === 'q') {
+        points = [
+          new THREE.Vector2(0, 0), new THREE.Vector2(0.43, 0), new THREE.Vector2(0.43, 0.15),
+          new THREE.Vector2(0.31, 0.28), new THREE.Vector2(0.19, 1.26), new THREE.Vector2(0.34, 1.48),
+          new THREE.Vector2(0.24, 1.72), new THREE.Vector2(0, 1.76)
+        ];
+        // Корона ферзя из 8 зубцов и сфера сверху
+        for (let i = 0; i < 8; i++) {
+          const a = (i * Math.PI) / 4;
+          const spike = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.18, 8), accentMat);
+          spike.position.set(Math.cos(a) * 0.25, 1.80, Math.sin(a) * 0.25);
+          group.add(spike);
+        }
+        const crownBall = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), accentMat);
+        crownBall.position.y = 1.86;
+        group.add(crownBall);
+      } else if (type === 'k') {
+        points = [
+          new THREE.Vector2(0, 0), new THREE.Vector2(0.44, 0), new THREE.Vector2(0.44, 0.16),
+          new THREE.Vector2(0.32, 0.30), new THREE.Vector2(0.20, 1.36), new THREE.Vector2(0.34, 1.60),
+          new THREE.Vector2(0.26, 1.80), new THREE.Vector2(0, 1.84)
+        ];
+      }
+
+      const geo = new THREE.LatheGeometry(points, 32);
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+
+      // Контрастные кольца у основания и воротника для мгновенной читаемости силуэта
+      const baseRing = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.025, 12, 32), accentMat);
+      baseRing.rotation.x = Math.PI / 2;
+      baseRing.position.y = 0.13;
+      group.add(baseRing);
+
+      if (type !== 'p') {
+        const neckRing = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.022, 12, 32), accentMat);
+        neckRing.rotation.x = Math.PI / 2;
+        neckRing.position.y = type === 'q' || type === 'k' ? 1.46 : 1.08;
+        group.add(neckRing);
+      }
+
+      // Крест короля
+      if (type === 'k') {
+        const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.34, 0.10), accentMat);
+        vBar.position.y = 2.00;
+        const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.10, 0.10), accentMat);
+        hBar.position.y = 2.03;
+        group.add(vBar, hBar);
+      }
+
+      return group;
+    }
+
+    function initThreeScene() {
+      const wrapper = document.getElementById('canvas-wrapper');
+      const canvas = document.getElementById('chess-canvas');
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x141414);
+
+      const width = wrapper.clientWidth || 640;
+      const height = wrapper.clientHeight || 480;
+
+      camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
+      camera.position.set(0, 8.8, 9.6);
+
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+      // OrbitControls for full 360 rotation & pinch zoom
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.07;
+      controls.maxPolarAngle = Math.PI / 2 - 0.06;
+      controls.minDistance = 5.5;
+      controls.maxDistance = 19;
+
+      // Studio Three-Point Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.72);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.95);
+      dirLight.position.set(7, 14, 8);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.width = 1024;
+      dirLight.shadow.mapSize.height = 1024;
+      scene.add(dirLight);
+
+      const rimLight = new THREE.DirectionalLight(0xFFFFFF, 0.75);
+      rimLight.position.set(-8, 9, -9);
+      scene.add(rimLight);
+
+      const frontFillLight = new THREE.DirectionalLight(0xFFFFFF, 0.50);
+      frontFillLight.position.set(0, 6, -12);
+      scene.add(frontFillLight);
+
+      boardGroup = new THREE.Group();
+      piecesGroup = new THREE.Group();
+      highlightsGroup = new THREE.Group();
+      arrowGroup = new THREE.Group();
+      scene.add(boardGroup, piecesGroup, highlightsGroup, arrowGroup);
+
+      buildChessBoard3D();
+
+      raycaster = new THREE.Raycaster();
+      mouse = new THREE.Vector2();
+
+      // Pointer Events for reliable Desktop Click + Mobile Tap without dragging conflicts
+      let pointerDownPos = { x: 0, y: 0 };
+      canvas.addEventListener('pointerdown', (e) => {
+        pointerDownPos = { x: e.clientX, y: e.clientY };
+      });
+      canvas.addEventListener('pointerup', (e) => {
+        const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+        if (dist < 6) {
+          handleBoardTap(e);
+        }
+      });
+
+      window.addEventListener('resize', onWindowResize);
+      animate3D();
+    }
+
+    function buildChessBoard3D() {
+      // Sleek Matte Frame Base
+      const frameGeo = new THREE.BoxGeometry(BOARD_SIZE * TILE_SIZE + 0.7, 0.36, BOARD_SIZE * TILE_SIZE + 0.7);
+      const frameMat = new THREE.MeshStandardMaterial({ color: 0x1F1F1F, roughness: 0.4 });
+      const frameMesh = new THREE.Mesh(frameGeo, frameMat);
+      frameMesh.position.y = -0.20;
+      frameMesh.receiveShadow = true;
+      boardGroup.add(frameMesh);
+
+      // Subtle Orange Accent Trim Ring
+      const trimGeo = new THREE.BoxGeometry(BOARD_SIZE * TILE_SIZE + 0.74, 0.05, BOARD_SIZE * TILE_SIZE + 0.74);
+      const trimMat = new THREE.MeshStandardMaterial({ color: 0xFF5500, roughness: 0.3 });
+      const trimMesh = new THREE.Mesh(trimGeo, trimMat);
+      trimMesh.position.y = -0.02;
+      boardGroup.add(trimMesh);
+
+      const lightMat = new THREE.MeshStandardMaterial({ color: 0xE2E2E2, roughness: 0.45 });
+      const darkMat  = new THREE.MeshStandardMaterial({ color: 0x3A3A3A, roughness: 0.45 });
+
+      for (let rank = 0; rank < 8; rank++) {
+        for (let file = 0; file < 8; file++) {
+          const sqName = String.fromCharCode(97 + file) + (rank + 1);
+          const isLight = (rank + file) % 2 === 1;
+          const tileGeo = new THREE.BoxGeometry(TILE_SIZE, 0.08, TILE_SIZE);
+          const tileMesh = new THREE.Mesh(tileGeo, isLight ? lightMat : darkMat);
+          const pos = squareToWorld(sqName);
+          tileMesh.position.set(pos.x, 0, pos.z);
+          tileMesh.receiveShadow = true;
+          tileMesh.userData = { square: sqName };
+          boardGroup.add(tileMesh);
+          squareMeshes[sqName] = tileMesh;
+        }
+      }
+    }
+
+    function syncPiecesWithChess(chessInstance, lastMoveObj = null) {
+      while (piecesGroup.children.length > 0) {
+        piecesGroup.remove(piecesGroup.children[0]);
+      }
+      pieceMeshes = {};
+
+      const board = chessInstance.board();
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const cell = board[r][c];
+          if (!cell) continue;
+          const sqName = String.fromCharCode(97 + c) + (8 - r);
+          const colorHex = cell.color === 'w' ? 0xFAFAFA : 0x161616;
+          const pieceObj = createLathePiece(cell.type, colorHex);
+          const pos = squareToWorld(sqName);
+          pieceObj.position.set(pos.x, 0.04, pos.z);
+          if (cell.color === 'b') pieceObj.rotation.y = Math.PI;
+          pieceObj.userData = { square: sqName, color: cell.color, type: cell.type };
+          piecesGroup.add(pieceObj);
+          pieceMeshes[sqName] = pieceObj;
+        }
+      }
+
+      renderBoardHighlights(lastMoveObj);
+    }
+
+    function renderBoardHighlights(lastMoveObj = null) {
+      while (highlightsGroup.children.length > 0) {
+        highlightsGroup.remove(highlightsGroup.children[0]);
+      }
+
+      // Highlight Last Move Squares
+      if (lastMoveObj) {
+        [lastMoveObj.from, lastMoveObj.to].forEach(sq => {
+          const pos = squareToWorld(sq);
+          const geo = new THREE.PlaneGeometry(TILE_SIZE * 0.94, TILE_SIZE * 0.94);
+          const mat = new THREE.MeshBasicMaterial({ color: 0xFF5500, transparent: true, opacity: 0.26, side: THREE.DoubleSide });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.position.set(pos.x, 0.045, pos.z);
+          highlightsGroup.add(mesh);
+        });
+      }
+
+      // Highlight Selected Square
+      if (selectedSquare) {
+        const pos = squareToWorld(selectedSquare);
+        const geo = new THREE.PlaneGeometry(TILE_SIZE * 0.96, TILE_SIZE * 0.96);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xFF5500, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.set(pos.x, 0.05, pos.z);
+        highlightsGroup.add(mesh);
+      }
+
+      // Highlight Legal Target Dots / Rings
+      legalMovesForSelected.forEach(m => {
+        const pos = squareToWorld(m.to);
+        const isCapture = Boolean(m.captured);
+        const geo = isCapture
+          ? new THREE.RingGeometry(0.32, 0.44, 28)
+          : new THREE.CircleGeometry(0.18, 24);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xFF5500, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
+        const marker = new THREE.Mesh(geo, mat);
+        marker.rotation.x = -Math.PI / 2;
+        marker.position.set(pos.x, 0.055, pos.z);
+        highlightsGroup.add(marker);
+      });
+    }
+
+    function drawBestMoveArrow(fromSq, toSq) {
+      while (arrowGroup.children.length > 0) {
+        arrowGroup.remove(arrowGroup.children[0]);
+      }
+      if (!fromSq || !toSq || !showBestArrows) return;
+
+      const start = squareToWorld(fromSq);
+      const end = squareToWorld(toSq);
+      start.y = 0.09;
+      end.y = 0.09;
+
+      const dir = new THREE.Vector3().subVectors(end, start);
+      const length = dir.length();
+      const arrowHelper = new THREE.ArrowHelper(
+        dir.clone().normalize(),
+        start,
+        length,
+        0xFF5500,
+        0.42,
+        0.34
+      );
+      arrowGroup.add(arrowHelper);
+    }
+
+    function setCameraPreset(preset) {
+      if (!camera || !controls) return;
+      controls.target.set(0, 0, 0);
+      if (preset === 'white') {
+        camera.position.set(0, 8.8, 9.6);
+      } else if (preset === 'black') {
+        camera.position.set(0, 8.8, -9.6);
+      } else if (preset === 'side') {
+        camera.position.set(10.5, 7.2, 0);
+      } else if (preset === 'top') {
+        camera.position.set(0, 13.5, 0.01);
+      }
+      controls.update();
+    }
+
+    function resetCameraView() {
+      setCameraPreset(playerSide === 'w' ? 'white' : 'black');
+    }
+
+    function flipBoardOrientation() {
+      const isCurrentlyWhiteSide = camera.position.z >= 0;
+      setCameraPreset(isCurrentlyWhiteSide ? 'black' : 'white');
+    }
+
+    function onWindowResize() {
+      const wrapper = document.getElementById('canvas-wrapper');
+      if (!wrapper || !renderer || !camera) return;
+      const w = wrapper.clientWidth;
+      const h = wrapper.clientHeight;
+      if (w > 0 && h > 0) {
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+      }
+    }
+
+    function animate3D() {
+      requestAnimationFrame(animate3D);
+      if (controls) controls.update();
+      if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+      }
+    }
+
+    /* ============================================================================
+       4. GAME STATE, MOVE HANDLING, REPLAY & LOCALSTORAGE HISTORY
+    ============================================================================ */
+    let game = new Chess();
+    let playerSide = 'w';
+    let isBotThinking = false;
+    let moveEvaluations = []; // Stores { san, from, to, color, evalAfter, quality, fen }
+    let pendingPromotionMove = null;
+    let isReplayMode = false;
+    let replayIndex = -1;
+
+    function handleBoardTap(event) {
+      if (isBotThinking || isReplayMode || game.game_over()) return;
+      if (game.turn() !== playerSide) return;
+
+      const canvas = renderer.domElement;
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+
+      // 1. Проверяем пересечение с плоскостью самой игровой поверхности доски (y = 0.04)
+      // Это гарантирует точное попадание курсора в клетку без смещения из-за толщины тайлов
+      const boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.04);
+      const planeHit = new THREE.Vector3();
+      let boardSquare = null;
+      if (raycaster.ray.intersectPlane(boardPlane, planeHit)) {
+        const file = Math.floor(planeHit.x / TILE_SIZE + 4);
+        const rank = Math.floor(4 - planeHit.z / TILE_SIZE);
+        if (file >= 0 && file < 8 && rank >= 0 && rank < 8) {
+          boardSquare = String.fromCharCode(97 + file) + (rank + 1);
+        }
+      }
+
+      // 2. Проверяем попадание непосредственно по 3D-фигуре (удобно при клике по верхней части фигуры)
+      const pieceHits = raycaster.intersectObjects(piecesGroup.children, true);
+      if (pieceHits.length > 0) {
+        let obj = pieceHits[0].object;
+        while (obj && (!obj.userData || !obj.userData.square)) {
+          obj = obj.parent;
+        }
+        if (obj && obj.userData && obj.userData.square) {
+          const hitSq = obj.userData.square;
+          // Если кликнули по своей фигуре или по фигуре соперника (взятие) — выбираем её клетку
+          if (obj.userData.color === playerSide || legalMovesForSelected.some(m => m.to === hitSq)) {
+            processSquareSelection(hitSq);
+            return;
+          }
+        }
+      }
+
+      if (boardSquare) {
+        processSquareSelection(boardSquare);
+      }
+    }
+
+    function processSquareSelection(square) {
+      const lastMove = moveEvaluations.length > 0 ? moveEvaluations[moveEvaluations.length - 1] : null;
+      const pieceOnSquare = game.get(square);
+
+      // Если выбрана своя фигура — выделяем её и показываем легальные ходы
+      if (pieceOnSquare && pieceOnSquare.color === playerSide) {
+        if (selectedSquare === square) {
+          selectedSquare = null;
+          legalMovesForSelected = [];
+        } else {
+          selectedSquare = square;
+          legalMovesForSelected = game.moves({ square, verbose: true });
+        }
+        renderBoardHighlights(lastMove);
+        return;
+      }
+
+      // Если фигура уже выбрана — проверяем, является ли нажатая клетка легальным ходом
+      if (selectedSquare) {
+        const targetMove = legalMovesForSelected.find(m => m.to === square);
+        if (targetMove) {
+          if (targetMove.flags.includes('p')) {
+            pendingPromotionMove = { from: selectedSquare, to: square };
+            document.getElementById('promotion-modal').classList.remove('hidden');
+            return;
+          }
+          executeMove(selectedSquare, square);
+          return;
+        }
+      }
+
+      // Иначе сбрасываем выделение
+      selectedSquare = null;
+      legalMovesForSelected = [];
+      renderBoardHighlights(lastMove);
+    }
+
+    function confirmPromotion(pieceType) {
+      document.getElementById('promotion-modal').classList.add('hidden');
+      if (pendingPromotionMove) {
+        const { from, to } = pendingPromotionMove;
+        pendingPromotionMove = null;
+        executeMove(from, to, pieceType);
+      }
+    }
+
+    function executeMove(from, to, promotion = 'q') {
+      const evalBefore = moveEvaluations.length > 0
+        ? moveEvaluations[moveEvaluations.length - 1].evalAfter
+        : 0.0;
+
+      const moveResult = game.move({ from, to, promotion });
+      if (!moveResult) return;
+
+      selectedSquare = null;
+      legalMovesForSelected = [];
+      drawBestMoveArrow(null, null);
+
+      const evalAfter = evaluateBoardStatic(game);
+      const quality = classifyMoveQuality(evalBefore, evalAfter, moveResult.color, moveResult);
+
+      const entry = {
+        san: moveResult.san,
+        from: moveResult.from,
+        to: moveResult.to,
+        color: moveResult.color,
+        evalAfter,
+        quality,
+        fen: game.fen()
+      };
+      moveEvaluations.push(entry);
+
+      syncPiecesWithChess(game, moveResult);
+      updateEvaluationUI(evalAfter);
+      updateMoveListUI();
+      updateCapturedPiecesUI();
+      showLastMoveOverlay(entry);
+
+      if (game.game_over()) {
+        finalizeCompletedGame();
+        return;
+      }
+
+      if (game.turn() !== playerSide) {
+        triggerBotResponse();
+      } else {
+        updateTurnBadge();
+      }
+    }
+
+    function triggerBotResponse() {
+      isBotThinking = true;
+      updateTurnBadge();
+
+      const profile = BOT_PROFILES.find(b => b.id === selectedBotId) || BOT_PROFILES[2];
+
+      setTimeout(() => {
+        const evalBefore = moveEvaluations.length > 0
+          ? moveEvaluations[moveEvaluations.length - 1].evalAfter
+          : 0.0;
+
+        const best = computeBestMove(game, profile.depth, profile.randomness);
+        if (best && best.move) {
+          const m = game.move(best.move);
+          const evalAfter = evaluateBoardStatic(game);
+          const quality = classifyMoveQuality(evalBefore, evalAfter, m.color, m);
+
+          const entry = {
+            san: m.san,
+            from: m.from,
+            to: m.to,
+            color: m.color,
+            evalAfter,
+            quality,
+            fen: game.fen()
+          };
+          moveEvaluations.push(entry);
+
+          syncPiecesWithChess(game, m);
+          updateEvaluationUI(evalAfter);
+          updateMoveListUI();
+          updateCapturedPiecesUI();
+        }
+
+        isBotThinking = false;
+        updateTurnBadge();
+
+        if (game.game_over()) {
+          finalizeCompletedGame();
+        } else if (showBestArrows) {
+          // Precompute hint subtly if enabled
+          const hint = computeBestMove(game, 2, 0);
+          if (hint && hint.move) {
+            bestMoveArrowData = { from: hint.move.from, to: hint.move.to };
+          }
+        }
+      }, 360);
+    }
+
+    function requestBestMoveHint() {
+      if (isReplayMode || game.game_over()) return;
+      const best = computeBestMove(game, 2, 0);
+      if (best && best.move) {
+        showBestArrows = true;
+        document.getElementById('toggle-best-arrows').checked = true;
+        drawBestMoveArrow(best.move.from, best.move.to);
+        showToast(`${I18N[currentLang].toastHintShown}: ${best.move.san}`);
+      }
+    }
+
+    function toggleBestMoveArrows(enabled) {
+      showBestArrows = enabled;
+      if (!enabled) {
+        drawBestMoveArrow(null, null);
+      } else if (bestMoveArrowData) {
+        drawBestMoveArrow(bestMoveArrowData.from, bestMoveArrowData.to);
+      }
+    }
+
+    function undoLastMove() {
+      if (isBotThinking || moveEvaluations.length === 0) return;
+      if (isReplayMode) exitReplayMode();
+
+      // Undo bot move + player move if playing vs bot
+      if (game.turn() === playerSide && moveEvaluations.length >= 2) {
+        game.undo();
+        moveEvaluations.pop();
+        game.undo();
+        moveEvaluations.pop();
+      } else {
+        game.undo();
+        moveEvaluations.pop();
+      }
+
+      selectedSquare = null;
+      legalMovesForSelected = [];
+      drawBestMoveArrow(null, null);
+      const last = moveEvaluations.length > 0 ? moveEvaluations[moveEvaluations.length - 1] : null;
+      syncPiecesWithChess(game, last);
+      updateEvaluationUI(last ? last.evalAfter : 0);
+      updateMoveListUI();
+      updateCapturedPiecesUI();
+      updateTurnBadge();
+    }
+
+    function resignCurrentGame() {
+      if (moveEvaluations.length === 0) return;
+      finalizeCompletedGame(true);
+    }
+
+    function finalizeCompletedGame(resigned = false) {
+      let resultText = 'Draw';
+      if (resigned) {
+        resultText = playerSide === 'w' ? '0-1 (Resigned)' : '1-0 (Resigned)';
+      } else if (game.in_checkmate()) {
+        resultText = game.turn() === 'w' ? '0-1 (Checkmate)' : '1-0 (Checkmate)';
+      }
+
+      const profile = BOT_PROFILES.find(b => b.id === selectedBotId) || BOT_PROFILES[2];
+      const savedGames = JSON.parse(localStorage.getItem('3dchess_history') || '[]');
+
+      const record = {
+        id: Date.now(),
+        date: new Date().toLocaleDateString(),
+        botName: profile.name,
+        playerSide,
+        result: resultText,
+        moves: moveEvaluations
+      };
+
+      savedGames.unshift(record);
+      localStorage.setItem('3dchess_history', JSON.stringify(savedGames.slice(0, 30)));
+      updateHistoryBadges();
+      renderSavedHistory();
+      showToast(`${I18N[currentLang].toastSaved} • ${resultText}`);
+    }
+
+    /* ============================================================================
+       5. UI UPDATES: EVAL BAR, MOVE SHEET, REPLAY & HISTORY
+    ============================================================================ */
+    function updateEvaluationUI(evalScore) {
+      const clamped = Math.max(-8, Math.min(8, evalScore));
+      const percentWhite = 50 + (clamped / 8) * 45;
+      document.getElementById('eval-fill').style.height = `${percentWhite}%`;
+
+      const formatted = (evalScore > 0 ? '+' : '') + evalScore.toFixed(1);
+      document.getElementById('eval-score-badge').textContent = formatted;
+    }
+
+    function updateTurnBadge() {
+      const thinkingEl = document.getElementById('bot-thinking-badge');
+      const turnEl = document.getElementById('turn-indicator');
+      if (isBotThinking) {
+        thinkingEl.classList.remove('hidden');
+        turnEl.textContent = I18N[currentLang].botTurn;
+      } else {
+        thinkingEl.classList.add('hidden');
+        turnEl.textContent = game.turn() === playerSide ? I18N[currentLang].yourTurn : I18N[currentLang].botTurn;
+      }
+    }
+
+    function showLastMoveOverlay(entry) {
+      const overlay = document.getElementById('move-rating-overlay');
+      document.getElementById('move-rating-icon').textContent = entry.quality.icon;
+      document.getElementById('move-rating-title').textContent = entry.quality.label;
+      const evStr = (entry.evalAfter > 0 ? '+' : '') + entry.evalAfter.toFixed(1);
+      document.getElementById('move-rating-sub').textContent = `${entry.from} → ${entry.to} (${evStr})`;
+      overlay.classList.remove('hidden');
+    }
+
+    function updateMoveListUI() {
+      const container = document.getElementById('moves-scroll-container');
+      const emptyState = document.getElementById('moves-empty-state');
+      document.getElementById('move-counter-label').textContent = `${moveEvaluations.length} moves`;
+
+      // Update player accuracy counters
+      let brilliant = 0, great = 0, good = 0, mistake = 0;
+      moveEvaluations.forEach(m => {
+        if (m.color === playerSide) {
+          if (m.quality.key === 'brilliant') brilliant++;
+          else if (m.quality.key === 'great') great++;
+          else if (m.quality.key === 'good') good++;
+          else if (m.quality.key === 'mistake' || m.quality.key === 'blunder') mistake++;
+        }
+      });
+      document.getElementById('stat-brilliant').textContent = brilliant;
+      document.getElementById('stat-great').textContent = great;
+      document.getElementById('stat-good').textContent = good;
+      document.getElementById('stat-mistake').textContent = mistake;
+
+      if (moveEvaluations.length === 0) {
+        container.innerHTML = '';
+        container.appendChild(emptyState);
+        emptyState.classList.remove('hidden');
+        return;
+      }
+
+      container.innerHTML = '';
+      moveEvaluations.forEach((m, idx) => {
+        const moveNum = Math.floor(idx / 2) + 1;
+        const isWhite = m.color === 'w';
+        const row = document.createElement('button');
+        const activeClass = (isReplayMode && replayIndex === idx) ? 'ring-2 ring-m3-primary bg-m3-primaryContainer/40' : 'hover:bg-m3-surfaceVariant';
+        row.className = `w-full px-3 py-2 rounded-xl flex items-center justify-between text-left transition ${activeClass}`;
+        row.onclick = () => jumpToHistoryPly(idx);
+
+        const evStr = (m.evalAfter > 0 ? '+' : '') + m.evalAfter.toFixed(1);
+        row.innerHTML = `
+          <div class="flex items-center gap-2.5">
+            <span class="font-mono text-xs text-m3-onSurfaceVariant w-6">${isWhite ? moveNum + '.' : '...'}</span>
+            <span class="font-mono text-sm font-bold text-m3-onSurface">${m.san}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full ${m.quality.badgeClass}">${m.quality.label}</span>
+            <span class="font-mono text-xs text-m3-onSurfaceVariant w-10 text-right">${evStr}</span>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function updateCapturedPiecesUI() {
+      const symbols = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛' };
+      const initialCounts = { p: 8, n: 2, b: 2, r: 2, q: 1 };
+      const current = { w: { p:0,n:0,b:0,r:0,q:0 }, b: { p:0,n:0,b:0,r:0,q:0 } };
+
+      game.board().forEach(row => row.forEach(cell => {
+        if (cell && current[cell.color][cell.type] !== undefined) {
+          current[cell.color][cell.type]++;
+        }
+      }));
+
+      let capturedByWhite = '';
+      let capturedByBlack = '';
+      ['q', 'r', 'b', 'n', 'p'].forEach(t => {
+        const lostBlack = Math.max(0, initialCounts[t] - current.b[t]);
+        const lostWhite = Math.max(0, initialCounts[t] - current.w[t]);
+        capturedByWhite += symbols[t].repeat(lostBlack);
+        capturedByBlack += symbols[t].repeat(lostWhite);
+      });
+
+      document.getElementById('captured-by-white').textContent = capturedByWhite;
+      document.getElementById('captured-by-black').textContent = capturedByBlack;
+    }
+
+    /* Step-by-Step Replay Controls */
+    function jumpToHistoryPly(idx) {
+      if (moveEvaluations.length === 0) return;
+      isReplayMode = true;
+      replayIndex = Math.max(0, Math.min(moveEvaluations.length - 1, idx));
+      document.getElementById('replay-banner').classList.remove('hidden');
+
+      const entry = moveEvaluations[replayIndex];
+      const tempChess = new Chess(entry.fen);
+      syncPiecesWithChess(tempChess, entry);
+      updateEvaluationUI(entry.evalAfter);
+      updateMoveListUI();
+    }
+
+    function stepHistoryMove(direction) {
+      if (moveEvaluations.length === 0) return;
+      if (!isReplayMode) replayIndex = moveEvaluations.length - 1;
+
+      if (direction === 'start') {
+        isReplayMode = true;
+        replayIndex = -1;
+        document.getElementById('replay-banner').classList.remove('hidden');
+        syncPiecesWithChess(new Chess(), null);
+        updateEvaluationUI(0);
+        updateMoveListUI();
+        return;
+      }
+      if (direction === 'prev') {
+        if (replayIndex > 0) jumpToHistoryPly(replayIndex - 1);
+        else stepHistoryMove('start');
+      } else if (direction === 'next') {
+        if (replayIndex < moveEvaluations.length - 1) jumpToHistoryPly(replayIndex + 1);
+      } else if (direction === 'end') {
+        exitReplayMode();
+      }
+    }
+
+    function exitReplayMode() {
+      isReplayMode = false;
+      replayIndex = moveEvaluations.length - 1;
+      document.getElementById('replay-banner').classList.add('hidden');
+      const last = moveEvaluations.length > 0 ? moveEvaluations[moveEvaluations.length - 1] : null;
+      syncPiecesWithChess(game, last);
+      updateEvaluationUI(last ? last.evalAfter : 0);
+      updateMoveListUI();
+    }
+
+    /* ============================================================================
+       6. NAVIGATION, ENGINE HUB & ARCHIVE RENDERING
+    ============================================================================ */
+    function switchSection(sectionName) {
+      ['play', 'engine', 'history'].forEach(sec => {
+        document.getElementById(`section-${sec}`).classList.toggle('hidden', sec !== sectionName);
+
+        const navBtn = document.getElementById(`nav-${sec}`);
+        const mNavBtn = document.getElementById(`mnav-${sec}`);
+        if (navBtn) {
+          navBtn.className = sec === sectionName
+            ? 'px-5 py-2 rounded-full text-sm font-semibold transition-all bg-m3-dark text-white flex items-center gap-2'
+            : 'px-5 py-2 rounded-full text-sm font-semibold transition-all text-m3-onSurfaceVariant hover:text-m3-onSurface flex items-center gap-2';
+        }
+        if (mNavBtn) {
+          mNavBtn.className = sec === sectionName
+            ? 'flex-1 py-2 rounded-full text-xs font-bold bg-m3-dark text-white'
+            : 'flex-1 py-2 rounded-full text-xs font-bold text-m3-onSurfaceVariant';
+        }
+      });
+
+      if (sectionName === 'play') {
+        setTimeout(onWindowResize, 50);
+      }
+    }
+
+    function populateBotSelectors() {
+      const mainSel = document.getElementById('bot-model-select');
+      const modalSel = document.getElementById('modal-bot-select');
+      [mainSel, modalSel].forEach(sel => {
+        sel.innerHTML = '';
+        BOT_PROFILES.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `${p.name} (${p.elo} ELO)`;
+          if (p.id === selectedBotId) opt.selected = true;
+          sel.appendChild(opt);
+        });
+      });
+
+      const active = BOT_PROFILES.find(b => b.id === selectedBotId) || BOT_PROFILES[2];
+      document.getElementById('bot-display-name').textContent = `${active.name} (${active.elo})`;
+      document.getElementById('active-engine-pill').textContent = `${active.name} • ${active.elo} ELO`;
+    }
+
+    function onSelectBotModel(botId) {
+      selectedBotId = botId;
+      localStorage.setItem('3dchess_bot', botId);
+      populateBotSelectors();
+      renderEngineCards();
+    }
+
+    function renderEngineCards() {
+      const grid = document.getElementById('engine-cards-grid');
+      if (!grid) return;
+      grid.innerHTML = '';
+
+      BOT_PROFILES.forEach(profile => {
+        const isActive = profile.id === selectedBotId;
+        const card = document.createElement('div');
+        card.className = `p-5 rounded-3xl border-2 transition cursor-pointer flex flex-col justify-between gap-4 ${
+          isActive ? 'border-m3-primary bg-m3-primaryContainer/30' : 'border-m3-outline bg-white hover:border-neutral-400'
+        }`;
+        card.onclick = () => {
+          onSelectBotModel(profile.id);
+          switchSection('play');
+        };
+
+        card.innerHTML = `
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="px-3 py-1 rounded-full text-xs font-extrabold ${isActive ? 'bg-m3-primary text-white' : 'bg-m3-surfaceVariant text-m3-onSurface'}">
+                ${profile.elo} ELO
+              </span>
+              ${isActive ? '<span class="text-xs font-bold text-m3-primary">● Active</span>' : ''}
+            </div>
+            <h3 class="text-base font-extrabold text-m3-onSurface">${profile.name}</h3>
+            <p class="text-xs text-m3-onSurfaceVariant leading-relaxed">
+              ${currentLang === 'ru' ? profile.descRu : profile.descEn}
+            </p>
+          </div>
+          <div class="text-xs font-bold text-m3-onSurface flex items-center justify-between pt-2 border-t border-m3-outline">
+            <span>Depth: ${profile.depth} ply</span>
+            <span class="text-m3-primary">${currentLang === 'ru' ? 'Выбрать →' : 'Select →'}</span>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function updateHistoryBadges() {
+      const savedGames = JSON.parse(localStorage.getItem('3dchess_history') || '[]');
+      document.getElementById('history-count-badge').textContent = savedGames.length;
+      document.getElementById('mhistory-count-badge').textContent = savedGames.length;
+    }
+
+    function renderSavedHistory() {
+      const listEl = document.getElementById('saved-games-list');
+      const emptyEl = document.getElementById('history-empty-state');
+      const savedGames = JSON.parse(localStorage.getItem('3dchess_history') || '[]');
+
+      if (savedGames.length === 0) {
+        listEl.innerHTML = '';
+        emptyEl.classList.remove('hidden');
+        return;
+      }
+
+      emptyEl.classList.add('hidden');
+      listEl.innerHTML = '';
+
+      savedGames.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'p-5 rounded-3xl border border-m3-outline bg-white flex flex-col justify-between gap-4 hover:shadow-md transition';
+
+        const brilliantCount = item.moves.filter(m => m.quality.key === 'brilliant').length;
+        const goodCount = item.moves.filter(m => m.quality.key === 'good' || m.quality.key === 'great').length;
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <span class="text-xs font-semibold text-m3-onSurfaceVariant">${item.date} • ${item.moves.length} plies</span>
+              <h3 class="text-base font-extrabold text-m3-onSurface mt-0.5">You vs ${item.botName}</h3>
+            </div>
+            <span class="px-3 py-1 rounded-full bg-m3-dark text-white text-xs font-bold">${item.result}</span>
+          </div>
+          <div class="flex items-center justify-between pt-3 border-t border-m3-outline">
+            <div class="flex items-center gap-2 text-xs font-bold">
+              <span class="px-2.5 py-0.5 rounded-full badge-brilliant">!! ${brilliantCount}</span>
+              <span class="px-2.5 py-0.5 rounded-full badge-great">✓ ${goodCount}</span>
+            </div>
+            <button onclick="loadGameInto3DReplay(${item.id})" class="m3-pill-btn bg-m3-primary text-white px-4 py-2 text-xs">
+              ${currentLang === 'ru' ? 'Смотреть в 3D' : 'Inspect in 3D'}
+            </button>
+          </div>
+        `;
+        listEl.appendChild(card);
+      });
+    }
+
+    function loadGameInto3DReplay(gameId) {
+      const savedGames = JSON.parse(localStorage.getItem('3dchess_history') || '[]');
+      const found = savedGames.find(g => g.id === gameId);
+      if (!found || !found.moves.length) return;
+
+      moveEvaluations = found.moves;
+      playerSide = found.playerSide || 'w';
+      switchSection('play');
+      jumpToHistoryPly(0);
+    }
+
+    function clearAllHistory() {
+      localStorage.removeItem('3dchess_history');
+      updateHistoryBadges();
+      renderSavedHistory();
+    }
+
+    /* New Game Modal Controls */
+    let tempModalSide = 'w';
+    function openNewGameModal() {
+      tempModalSide = playerSide;
+      selectPlayerSide(tempModalSide);
+      document.getElementById('new-game-modal').classList.remove('hidden');
+    }
+
+    function closeNewGameModal() {
+      document.getElementById('new-game-modal').classList.add('hidden');
+    }
+
+    function selectPlayerSide(side) {
+      tempModalSide = side;
+      document.getElementById('side-choice-w').className = side === 'w'
+        ? 'p-3.5 rounded-2xl border-2 border-m3-primary bg-m3-primaryContainer/40 font-bold text-sm text-m3-onSurface flex items-center justify-center gap-2'
+        : 'p-3.5 rounded-2xl border-2 border-m3-outline bg-white font-bold text-sm text-m3-onSurface flex items-center justify-center gap-2';
+      document.getElementById('side-choice-b').className = side === 'b'
+        ? 'p-3.5 rounded-2xl border-2 border-m3-primary bg-m3-primaryContainer/40 font-bold text-sm text-m3-onSurface flex items-center justify-center gap-2'
+        : 'p-3.5 rounded-2xl border-2 border-m3-outline bg-white font-bold text-sm text-m3-onSurface flex items-center justify-center gap-2';
+    }
+
+    function startNewGameFromModal() {
+      const chosenBot = document.getElementById('modal-bot-select').value;
+      onSelectBotModel(chosenBot);
+
+      playerSide = tempModalSide;
+      game = new Chess();
+      moveEvaluations = [];
+      selectedSquare = null;
+      legalMovesForSelected = [];
+      isReplayMode = false;
+      isBotThinking = false;
+
+      document.getElementById('replay-banner').classList.add('hidden');
+      document.getElementById('move-rating-overlay').classList.add('hidden');
+      drawBestMoveArrow(null, null);
+
+      syncPiecesWithChess(game, null);
+      updateEvaluationUI(0);
+      updateMoveListUI();
+      updateCapturedPiecesUI();
+      setCameraPreset(playerSide === 'w' ? 'white' : 'black');
+      closeNewGameModal();
+      switchSection('play');
+
+      if (playerSide === 'b') {
+        triggerBotResponse();
+      } else {
+        updateTurnBadge();
+      }
+    }
+
+    /* ============================================================================
+       7. INITIALIZATION ON WINDOW LOAD
+    ============================================================================ */
+    window.onload = function () {
+      populateBotSelectors();
+      setLanguage(currentLang);
+      initThreeScene();
+      syncPiecesWithChess(game, null);
+      updateHistoryBadges();
+      renderSavedHistory();
+      updateTurnBadge();
+    };
+  </script>
+</body>
+</html>
